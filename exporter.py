@@ -1,143 +1,118 @@
-# -*- coding: utf-8 -*-
 import os
 import time
 import logging
 import argparse
-from slackclient import SlackClient
-from helpers import save_items
+import client
+from helpers import save_conversations
 
 logging.basicConfig(format='[%(asctime)s] %(message)s',
                     datefmt='%d/%m/%Y %I:%M:%S %p',
                     level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+RATE_LIMIT_WAITING_SECONDS = 60
+MESSAGE_FETCH_COUNT = 1000
 
-class SlackExporter(object):
-    RATE_LIMIT_WAITING_SECONDS = 60
-    MESSAGE_FETCH_COUNT = 1000
 
-    def __init__(self, *args, **kwargs):
-        self.token = kwargs['token']
-        self.slack_client = SlackClient(self.token)
-        self.chat_types_map = {
-            'channels': self.get_all_channel_messages,
-            'groups': self.get_all_group_messages,
-            'direct_messages': self.get_all_direct_messages
-        }
+def check_me():
+    _, result = client.check_me()
+    assert result["ok"], result["error"].replace("_", " ")
+    return result
 
-    def check_me(self):
-        rsp = self.slack_client.api_call('auth.test')
-        assert rsp['ok'], rsp['error'].replace('_', ' ')
-        return rsp
 
-    def get_members(self):
-        members = {}
-        rsp = self.slack_client.api_call("users.list")
-        for member in rsp['members']:
-            profile = member['profile']
-            profile['id'] = member['id']
-            members[member['id']] = profile
-        return members
+def get_channels(_type, cursor=None):
+    channels = []
+    _, result = client.get_conversations(
+        conversation_type=_type, cursor=cursor)
+    channels.extend(result["channels"])
+    meta = result["response_metadata"]
+    if meta["next_cursor"]:
+        channels.extend(get_channels(_type, meta["next_cursor"]))
+    return channels
 
-    def get_channels(self):
-        rsp = self.slack_client.api_call("channels.list")
-        return rsp.get('channels', [])
 
-    def get_groups(self):
-        rsp = self.slack_client.api_call("groups.list")
-        return rsp.get('groups', [])
+def get_members(cursor=None):
+    members = {}
+    _, result = client.get_users(limit=10, cursor=cursor)
+    meta = result["response_metadata"]
+    for member in result["members"]:
+        member_id = member["id"]
+        members[member_id] = member
+    if meta["next_cursor"]:
+        members.update(get_members(meta["next_cursor"]))
+    return members
 
-    def direct_message_channels(self):
-        rsp = self.slack_client.api_call('im.list')
-        return rsp.get('ims', [])
 
-    def get_messages(self, method, channel, latest=None):
-        payload = {
-            'channel': channel,
-            'count': self.MESSAGE_FETCH_COUNT,
-            'unreads': True,
-            'inclusive': False
-        }
-        if latest:
-            payload['latest'] = latest
-        rsp = self.slack_client.api_call(method, **payload)
-        messages = rsp.get('messages', [])
-        if rsp.get('error') == 'ratelimited':
-            time.sleep(self.RATE_LIMIT_WAITING_SECONDS)
-            messages += self.get_messages(method, channel, latest=latest)
-        if rsp.get('has_more'):
-            messages += self.get_messages(
-                method, channel, latest=messages[-1]['ts'])
-        return messages
+def get_messages(channel, latest=None):
+    messages = []
+    _, result = client.get_messages(
+        channel,
+        latest=latest,
+        inclusive=True,
+        limit=MESSAGE_FETCH_COUNT)
 
-    def get_direct_messages(self, channel):
-        return self.get_messages('im.history', channel)
+    if result.get("error") == "ratelimited":
+        time.sleep(RATE_LIMIT_WAITING_SECONDS)
+        messages.extend(get_messages(channel, latest))
+    else:
+        result_messages = result["messages"]
+        if latest is not None:
+            result_messages.pop(0)
+        messages.extend(result_messages)
 
-    def get_channel_messages(self, channel):
-        return self.get_messages('channels.history', channel)
+    if messages:
+        has_more = result.get("has_more")
+        last_latest = messages[-1]["ts"]
+        if latest != last_latest and has_more:
+            messages.extend(get_messages(channel, last_latest))
+    return messages
 
-    def get_group_messages(self, channel):
-        return self.get_messages('groups.history', channel)
 
-    def get_all_direct_messages(self):
-        direct_channels = self.direct_message_channels()
-        for channel in direct_channels:
-            messages = self.get_direct_messages(channel['id'])
+def channel_handler(channel_type):
+    for c_type in client.CONVERSATION_TYPES:
+        if channel_type and channel_type != c_type:
+            continue
+        for channel in get_channels(c_type):
+            messages = get_messages(channel['id'])
             messages.reverse()
-            yield {'messages': messages,
-                   'channel_info': channel}
-
-    def get_all_group_messages(self):
-        groups = self.get_groups()
-        for group in groups:
-            messages = self.get_group_messages(group['id'])
-            messages.reverse()
-            yield {'messages': messages,
-                   'group_info': group}
-
-    def get_all_channel_messages(self):
-        channels = self.get_channels()
-        for channel in channels:
-            messages = self.get_channel_messages(channel['id'])
-            messages.reverse()
-            yield {'channel_info': channel,
-                   'messages': messages}
+            result = {
+                "channel_info": channel,
+                "messages": messages
+            }
+            yield result
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description='Slack Exporter',
-        usage='expoter.py --token <token> [options]',
-        epilog='if you do not have archive access, use me'
+        description="Slack Exporter",
+        usage="expoter.py [options]",
+        epilog="if you do not have archive access, use me"
     )
-    parser.add_argument('--token', required=True,
-                        help=('slack access token.'
-                              'if you haven’t received tokens yet, follow me '
-                              'https://api.slack.com/custom-integrations/'
-                              'legacy-tokens'))
-    parser.add_argument('--chat-type', help='select chat type',
-                        choices=['channels', 'groups', 'direct_messages'])
-    parser.add_argument('--directory', default='.', help='export directory')
-    parser.add_argument('--log-level', default='INFO',
-                        choices=['INFO', 'DEBUG', 'WARNING'], help='log level')
-    parser.add_argument('--export-type', default='json',
-                        choices=['json', 'single_html', 'multiple_html'],
-                        help='export type')
+    parser.add_argument("--channel-type", help="select channel type",
+                        choices=list(client.CONVERSATION_TYPES),
+                        default=client.CONVERSATION_TYPE_PUBLIC)
+    parser.add_argument("--directory", default=".", help="export directory")
+    parser.add_argument("--log-level", default="INFO",
+                        choices=["INFO", "DEBUG", "WARNING"], help="log level")
+    parser.add_argument("--export-type", default="json",
+                        choices=["json", "single_html", "multiple_html"],
+                        help="export type")
     args = parser.parse_args()
 
-    assert os.path.exists(args.directory), '%s does not exist' % args.directory
+    assert os.path.exists(args.directory), "%s does not exist" % args.directory
     logging.getLogger().setLevel(getattr(logging, args.log_level))
-    exporter = SlackExporter(token=args.token)
-    exporter.check_me()
-    logger.info('starting...')
+    logger.info("starting...")
+    check_me()
 
-    items = {'members': exporter.get_members()}
-    for chat_type, func in exporter.chat_types_map.items():
-        if args.chat_type and chat_type != args.chat_type:
-            continue
+    members = get_members()
+    channels_payload = {"members": members, "channels": []}
 
-        logger.info('%s start' % chat_type)
-        data = [item for item in func()]
-        items[chat_type] = data
-        logger.info('%s done' % chat_type)
-    save_items(args.directory, args.export_type, items)
+    conversations = []
+    for channel_payload in channel_handler(args.channel_type):
+        conversation_payload = {
+            "channel_type": args.channel_type,
+            "channel_payload": channel_payload
+        }
+        conversations.append(conversation_payload)
+    save_conversations(args.directory, args.export_type,
+                       conversations, members)

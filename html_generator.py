@@ -27,19 +27,31 @@ def timestamp_to_strftime(ts):
         float(ts)).strftime('%Y-%m-%d %H:%M:%S')
 
 
-def get_message(message_map):
-    message = message_map.get('text')
-    if message is None:
-        message = ''
-        for item in message_map.get('attachments', []):
-            message += item.get('text', '')
-            message += item.get('fallback', '')
-            message += item.get('title', '')
-            actions = item.get('actions') or []
-            action_text = [action.get('text', '')
-                           for action in actions]
-            message += ' '.join(action_text)
-    return message
+def get_attachments_message(message):
+    message_text = ''
+    for item in message.get('attachments', []):
+        message_text += item.get('text', '')
+        message_text += item.get('fallback', '')
+        message_text += item.get('title', '')
+        actions = item.get('actions') or []
+        action_text = [action.get('text', '')
+                       for action in actions]
+        message_text += ' '.join(action_text)
+    return message_text
+
+
+def get_file_message(message):
+    message_text = ''
+    for item in message.get('files', []):
+        message_text += item.get('permalink_public', '')
+    return message_text
+
+
+def get_message(message):
+    message_text = message.get('text', '')
+    message_text += get_attachments_message(message)
+    message_text += get_file_message(message)
+    return message_text
 
 
 def get_member_name(member_info, default_member_name='unknown-name'):
@@ -53,8 +65,6 @@ def get_member_name(member_info, default_member_name='unknown-name'):
 def get_message_member_id(message):
     if message.get('comment'):
         member_id = message['comment']['user']
-    elif message.get('attachments'):
-        member_id = None
     else:
         member_id = message.get('user')
     return member_id
@@ -68,62 +78,32 @@ def make_message_payload(member_display_name, message):
             'member': member_display_name}
 
 
-def message_content_handler(item_id, display_name, messages, members):
+def message_content_handler(channel_id, display_name, messages, members):
     message_list = []
     for message in messages:
         member_id = get_message_member_id(message)
         member_display_name = get_member_name(members.get(member_id))
         message_payload = make_message_payload(member_display_name, message)
         message_list.append(message_payload)
-    return {'item_id': item_id,
+    return {'channel_id': channel_id,
             'label': display_name,
             'messages': message_list}
 
 
-def channels_content(items, members):
+def prepare_content_items(conversations, members):
     item_list = []
-    for item in items:
-        item_id = item['channel_info']['id']
-        display_name = item['channel_info']['name']
-        item_list.append(message_content_handler(
-            item_id, display_name, item['messages'], members))
+    for conversation in conversations:
+        channel = conversation["channel_payload"]
+        channel_id = channel["channel_info"]["id"]
+        display_name = channel["channel_info"]["name"]
+        processed_conversation = message_content_handler(
+            channel_id, display_name, channel['messages'], members)
+        item_list.append(processed_conversation)
     return item_list
-
-
-def groups_content(items, members):
-    item_list = []
-    for item in items:
-        group_id = item['group_info']['id']
-        display_name = item['group_info']['name']
-        item_list.append(message_content_handler(
-            group_id, display_name, item['messages'], members))
-    return item_list
-
-
-def direct_messages_content(items, members):
-    item_list = []
-    for item in items:
-        channel_id = item['channel_info']['id']
-        member = members[item['channel_info']['user']]
-        display_name = get_member_name(member)
-        item_list.append(message_content_handler(
-            channel_id, display_name, item['messages'], members))
-    return item_list
-
-
-def prepare_content_items(content_items, members):
-    method_map = {'direct_messages': direct_messages_content,
-                  'channels': channels_content,
-                  'groups': groups_content}
-    content_list = []
-    for content_type, items in content_items.items():
-        func = method_map[content_type]
-        content_list += func(items, members)
-    return content_list
 
 
 def make_menu_html(items, hash_fragment=True):
-    menu_items = {item['item_id']: item['label'] for item in items}
+    menu_items = {item['channel_id']: item['label'] for item in items}
     context = {'menu_items': menu_items, 'hash_fragment': hash_fragment}
     return render_to_template('menu.html', context)
 
@@ -137,21 +117,19 @@ def make_content_html(menu, content):
     return render_to_template('main.html', context)
 
 
-def make_multiple_content(content_items):
-    members = content_items.pop('members')
-    contents = prepare_content_items(content_items, members)
+def make_multiple_content(conversations, members):
+    contents = prepare_content_items(conversations, members)
     menu_html = make_menu_html(contents, hash_fragment=False)
     items = {'index': menu_html}
     for item in contents:
         html = make_content_template(item)
         clean_html = content_replacement(html, members)
-        items[item['item_id']] = clean_html
+        items[item['channel_id']] = clean_html
     return items
 
 
-def make_single_content(content_items):
-    members = content_items.pop('members')
-    contents = prepare_content_items(content_items, members)
+def make_single_content(conversations, members):
+    contents = prepare_content_items(conversations, members)
     menu_html = make_menu_html(contents)
     content_html = ''
     for item in contents:

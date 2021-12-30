@@ -1,2 +1,2 @@
-slackclient==1.1.2
-Jinja2==2.10
+requests==2.21.0
+Jinja2==3.0.3
