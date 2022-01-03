@@ -19,8 +19,8 @@ Slack conversations exporter html/json
  - Select the App Name and the slack workspace you want to backup and press the `Create App` button.
  - From the `Basic information` tab, click on the `Permissions` tab under `Add features and functionality`.
  - Download the page and come to the `Scopes` section.
- - Add the following permissions by clicking the 'Add an OAuth Scope' button under 'User Token Scopes'.
- 8 - `channels:history,channels:read,groups:history,groups:read,identify`
+ - Add the following permissions by clicking the `Add an OAuth Scope` button under `User Token Scopes`.
+ - `channels:history,channels:read,groups:history,groups:read,identify`
      `im:history,im:read,mpim:history,mpim:read,usergroups:read,users.profile:read`
      `users:read,users:read.email`
  - After adding the necessary permissions, the `install to workspace` button under `OAuth Tokens for Your Workspace` becomes active.
