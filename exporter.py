@@ -89,8 +89,7 @@ if __name__ == "__main__":
         epilog="if you do not have archive access, use me"
     )
     parser.add_argument("--channel-type", help="select channel type",
-                        choices=list(client.CONVERSATION_TYPES),
-                        default=client.CONVERSATION_TYPE_PUBLIC)
+                        choices=list(client.CONVERSATION_TYPES))
     parser.add_argument("--directory", default=".", help="export directory")
     parser.add_argument("--log-level", default="INFO",
                         choices=["INFO", "DEBUG", "WARNING"], help="log level")

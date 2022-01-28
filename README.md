@@ -44,7 +44,7 @@ Multiple html export with channel type
 
 ## Parameters
         Parameter    required/optinal   description
-        --channel-type    optional   im|mpim|public_channel|private_channel. default "all"
+        --channel-type    optional        im|mpim|public_channel|private_channel. default "all"
         --directory       optional        default "current" directory
         --log-level       optional        INFO|DEBUG|WARNING, default "INFO"
         --export-type     optional        json|single_html|multiple_html, default "json"

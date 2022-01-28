@@ -90,12 +90,23 @@ def message_content_handler(channel_id, display_name, messages, members):
             'messages': message_list}
 
 
+def get_display_name(channel_info, members):
+    if channel_info["is_im"]:
+        profile = members[channel_info["user"]]["profile"]
+        display_name = profile["display_name"] or \
+            profile["real_name_normalized"]
+    else:
+        display_name = channel_info["name"]
+    return display_name
+
+
 def prepare_content_items(conversations, members):
     item_list = []
     for conversation in conversations:
         channel = conversation["channel_payload"]
-        channel_id = channel["channel_info"]["id"]
-        display_name = channel["channel_info"]["name"]
+        channel_info = channel["channel_info"]
+        channel_id = channel_info["id"]
+        display_name = get_display_name(channel_info, members)
         processed_conversation = message_content_handler(
             channel_id, display_name, channel['messages'], members)
         item_list.append(processed_conversation)
