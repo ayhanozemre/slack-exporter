@@ -27,7 +27,7 @@ def request(method, uri, querystring=None, payload=None, headers=None):
     if payload is not None:
         data.update(payload)
 
-    url = os.path.join(BASE_URL, uri)
+    url = BASE_URL + '/' + uri
     if querystring is not None:
         qs = {k: v for k, v in querystring.items() if v is not None}
         url += "?{qs}".format(qs=urlencode(qs))
@@ -76,3 +76,7 @@ def get_messages(channel, inclusive=False, limit=100, latest=None):
 def get_users(cursor=None, limit=None):
     qs = {"cursor": cursor, "limit": limit}
     return request("post", "api/users.list", querystring=qs)
+
+def download_file(url):
+    headers = {'Authorization': f'Bearer {SLACK_USER_TOKEN}'}
+    return requests.get(url, stream = True, headers=headers)
