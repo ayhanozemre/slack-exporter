@@ -27,7 +27,7 @@ def request(method, uri, querystring=None, payload=None, headers=None):
     if payload is not None:
         data.update(payload)
 
-    url = os.path.join(BASE_URL, uri)
+    url = BASE_URL + '/' + uri
     if querystring is not None:
         qs = {k: v for k, v in querystring.items() if v is not None}
         url += "?{qs}".format(qs=urlencode(qs))
