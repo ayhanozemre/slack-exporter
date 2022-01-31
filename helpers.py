@@ -6,8 +6,11 @@ from html_generator import make_single_content, make_multiple_content
 DATA_FILE_NAME = 'slack-export'
 
 
-def save(file_path, item):
-    with open(file_path, "w") as f:
+def save(file_path, item, mode="w"):
+    encoding = None #binary mode does not accept encoding
+    if(mode == 'w'): 
+        encoding = 'utf-8' #without this, a fatal error is generated at unicode content.
+    with open(file_path, mode, encoding=encoding) as f:
         f.write(item)
     return file_path
 

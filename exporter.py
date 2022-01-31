@@ -3,7 +3,7 @@ import time
 import logging
 import argparse
 import client
-from helpers import save_conversations
+from helpers import save, save_conversations
 
 logging.basicConfig(format='[%(asctime)s] %(message)s',
                     datefmt='%d/%m/%Y %I:%M:%S %p',
@@ -12,7 +12,9 @@ logger = logging.getLogger(__name__)
 
 RATE_LIMIT_WAITING_SECONDS = 60
 MESSAGE_FETCH_COUNT = 1000
+DOWNLOAD_FILES = True #TODO: turn this into a CLI argument
 
+file_index = 0 #avoiding duplicates in file names
 
 def check_me():
     _, result = client.check_me()
@@ -67,6 +69,24 @@ def get_messages(channel, latest=None):
             messages.extend(get_messages(channel, last_latest))
     return messages
 
+def get_file_links(messages):
+    has_files_list = [msg["files"] for msg in messages if "files" in msg]
+    files = [file for file_list in has_files_list for file in file_list] #flatten the file_list arrays
+    downloadable = [file['url_private_download'] for file in files if "url_private_download" in file ]
+    return downloadable
+
+def get_files(messages):
+    global file_index
+    links = get_file_links(messages)
+    if len(links) == 0:
+        return
+    for link in links:
+        response = client.download_file(link)
+        file_index += 1
+        file_name = str(file_index) + '--' + link.split('/')[-1]
+        path = os.path.join(args.directory, 'downloaded', file_name) #TODO this means the `downloaded` folder must be in the destination.
+        save(path, response.content, mode='wb+')
+    return links
 
 def channel_handler(channel_type):
     for c_type in client.CONVERSATION_TYPES:
@@ -75,9 +95,12 @@ def channel_handler(channel_type):
         for channel in get_channels(c_type):
             messages = get_messages(channel['id'])
             messages.reverse()
+            if DOWNLOAD_FILES: 
+                files = get_files(messages)
             result = {
                 "channel_info": channel,
                 "messages": messages
+                # can add files here later too
             }
             yield result
 
